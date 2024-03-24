@@ -39,10 +39,13 @@ void Improv::init(std::string name = "Improv_service"){
 
 void Improv::connect_wifi(HardwareSerial* serial, std::string ssid, std::string passwd){
     serial->printf("credentials received: SSID: %s \n PASSWD: %s", ssid.c_str(), passwd.c_str());
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(String(ssid.c_str()), String(passwd.c_str()));
 }
 
 bool Improv::wificonnected(){
-    return true;
+    // return true;
+    return (WiFi.status() == WL_CONNECTED);
 }
 
 void Improv::set_authorizer(function<Authorization(void)> new_authorizer){
@@ -303,9 +306,9 @@ void Improv::loop(){
     uint32_t now = millis();
     static uint32_t start_authorized = 0;
 
-    static uint16_t last_identify_signal_time = 0;
-    static uint16_t start_wifi_connection = 0;
-    static uint16_t provisioned_time = 0;
+    static uint32_t last_identify_signal_time = 0;
+    static uint32_t start_wifi_connection = 0;
+    static uint32_t provisioned_time = 0;
     static TaskHandle_t stop_task_handle = nullptr;
 
     static bool advertising = false;
@@ -347,12 +350,15 @@ void Improv::loop(){
             // keep here until the wifi is connected or connection times out
             if(start_wifi_connection == 0) start_wifi_connection = now + 1;
             if(wificonnected()){
+                Serial.println("Provisioning successfull");
                 set_state(Improv::State::STATE_PROVISIONED);
                 std::vector<std::string> urls = {"https://google.com"};
                 std::vector<uint8_t> data = Improv::build_rpc_response(Improv::Command::WIFI_SETTINGS, urls);
                 send_response(data);
             }
+            Serial.printf("connection timing: %u \n",now - start_wifi_connection);
             if(now - (start_wifi_connection - 1) > 30000 && !wificonnected()){
+                Serial.println("Wifi connection timeout");
                 set_error(Improv::Error::ERROR_UNABLE_TO_CONNECT);
                 set_state(Improv::State::STATE_AUTHORIZED);
             }

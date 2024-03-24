@@ -4,6 +4,7 @@
 #pragma once
 
 #include <NimBLEDevice.h>
+#include <WiFi.h>
 #include <iostream>
 #include <vector>
 using std::function;
