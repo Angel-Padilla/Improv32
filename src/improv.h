@@ -6,7 +6,6 @@
 #include <NimBLEDevice.h>
 #include <iostream>
 #include <vector>
-
 using std::function;
 
 
@@ -138,7 +137,38 @@ namespace Improv{
             if(fail & 0x01) init_fail += " [service could not be created]";
             if(fail & 0x02) init_fail += " [server could not be created]";
             if(fail & 0x04) init_fail += " [BLEDevice could not be initialized]";
+            if(fail & 0x08) init_fail += " [improv not initialized start() must be called after init()]";
         }
+    };
+
+    typedef struct improvData{
+        const uint8_t CAPABILITY_IDENTIFY;
+        const uint8_t IMPROV_SERIAL_VERSION;
+        BLEServer *_bt_server;
+        BLEService* ble_improv_service;
+        BLECharacteristic *capabilites_char;
+        BLECharacteristic *current_state_char;
+        BLECharacteristic *err_state_char;
+        BLECharacteristic *rpc_command_char;
+        BLECharacteristic *rpc_result_char;
+        Improv::State improvState;
+        Improv::Error improvError;
+        Improv::Authorization auth;
+        function<Improv::Authorization(void)> authorizer;
+        std::vector<uint8_t> rpc_message;
+        std::string service_data;
+        TaskHandle_t loop_handle;
+        bool stop_improv;
+        bool improv_service_running;
+        bool identifiable;
+        bool identify_device;
+        BLECharacteristicCallbacks* capabilities_cb;
+        BLECharacteristicCallbacks* current_state_cb;
+        BLECharacteristicCallbacks* err_state_cb;
+        BLECharacteristicCallbacks* rpc_command_cb;
+        BLECharacteristicCallbacks* rpc_result_cb;
+        std::string device_name;
+        HardwareSerial* wifi_manager;
     };
 
     ImprovCommand parse_improv_data(const std::vector<uint8_t> &data, bool check_checksum = true);
@@ -158,7 +188,8 @@ namespace Improv{
 
     void send_response(std::vector<uint8_t> &response) ;
     void set_characteristics(BLEService* service);
-    void start(const char* bt_name);
+    void start();
+    void init(std::string bt_name);
     void process_incoming_data();
     void set_state(State state);
     void set_error(Error error);

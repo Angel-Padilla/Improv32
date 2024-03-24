@@ -1,33 +1,41 @@
 #include "improv.h"
 
 //global static variables 
-static const uint8_t CAPABILITY_IDENTIFY = 0x01;
-static const uint8_t IMPROV_SERIAL_VERSION = 1;
-static BLEServer *_bt_server = nullptr;
-static BLEService* ble_improv_service = nullptr;
-static BLECharacteristic *capabilites_char = nullptr;
-static BLECharacteristic *current_state_char = nullptr;
-static BLECharacteristic *err_state_char = nullptr;
-static BLECharacteristic *rpc_command_char = nullptr;
-static BLECharacteristic *rpc_result_char = nullptr;
-static Improv::State improvState = Improv::State::STATE_STOPPED;
-static Improv::Error improvError = Improv::Error::ERROR_NONE;
-static Improv::Authorization auth = Improv::Authorization::DEVICE_UNAUTHORIZED;
-static function<Improv::Authorization(void)> authorizer = nullptr;
-static std::vector<uint8_t> rpc_message;
-static std::string service_data = "a";
-static TaskHandle_t loop_handle = nullptr;
-static bool stop_improv = true;
-static bool improv_service_running = false;
-static bool identifiable = true;
-static bool identify_device = false;
-static BLECharacteristicCallbacks* capabilities_cb = new Improv::CALLBACKS::CAPABILITIES;
-static BLECharacteristicCallbacks* current_state_cb = new Improv::CALLBACKS::CURRENT_STATE;
-static BLECharacteristicCallbacks* err_state_cb = new Improv::CALLBACKS::ERR_STATE;
-static BLECharacteristicCallbacks* rpc_command_cb = new Improv::CALLBACKS::RPC_COMMAND;
-static BLECharacteristicCallbacks* rpc_result_cb = new Improv::CALLBACKS::RPC_RESULT;
-static std::string device_name = "Improv_service";
-static HardwareSerial* wifi_manager = &Serial;
+static Improv::improvData* data = nullptr;
+
+void Improv::init(std::string name = "Improv_service"){
+
+    data = new Improv::improvData({
+        .CAPABILITY_IDENTIFY = 0x01,
+        .IMPROV_SERIAL_VERSION = 1,
+        ._bt_server = nullptr,
+        .ble_improv_service = nullptr,
+        .capabilites_char = nullptr,
+        .current_state_char = nullptr,
+        .err_state_char = nullptr,
+        .rpc_command_char = nullptr,
+        .rpc_result_char = nullptr,
+        .improvState = Improv::State::STATE_STOPPED,
+        .improvError = Improv::Error::ERROR_NONE,
+        .auth = Improv::Authorization::DEVICE_UNAUTHORIZED,
+        .authorizer = nullptr,
+        .rpc_message = {},
+        .service_data = "",
+        .loop_handle = nullptr,
+        .stop_improv = true,
+        .improv_service_running = false,
+        .identifiable = true,
+        .identify_device = false,
+        .capabilities_cb = new Improv::CALLBACKS::CAPABILITIES,
+        .current_state_cb = new Improv::CALLBACKS::CURRENT_STATE,
+        .err_state_cb = new Improv::CALLBACKS::ERR_STATE,
+        .rpc_command_cb = new Improv::CALLBACKS::RPC_COMMAND,
+        .rpc_result_cb = new Improv::CALLBACKS::RPC_RESULT,
+        .device_name = name,
+        .wifi_manager = &Serial,
+    });
+
+}
 
 void Improv::connect_wifi(HardwareSerial* serial, std::string ssid, std::string passwd){
     serial->printf("credentials received: SSID: %s \n PASSWD: %s", ssid.c_str(), passwd.c_str());
@@ -38,16 +46,16 @@ bool Improv::wificonnected(){
 }
 
 void Improv::set_authorizer(function<Authorization(void)> new_authorizer){
-    authorizer = new_authorizer;
+    data->authorizer = new_authorizer;
 }
 
 Improv::Authorization Improv::authorize(){
-    if(authorizer == nullptr) return Authorization::DEVICE_AUTHORIZED;
-    return authorizer();
+    if(data->authorizer == nullptr) return Authorization::DEVICE_AUTHORIZED;
+    return data->authorizer();
 }
 
 void Improv::revoke_auth(){
-    auth = Authorization::DEVICE_UNAUTHORIZED;
+    data->auth = Authorization::DEVICE_UNAUTHORIZED;
 }
 
 void Improv::configure_adv_data(BLEAdvertisementData* adv_data,BLEAdvertisementData* scan_response_data, NimBLEUUID data_service_uuid, std::string &data_service_data){
@@ -55,7 +63,7 @@ void Improv::configure_adv_data(BLEAdvertisementData* adv_data,BLEAdvertisementD
     adv_data->setCompleteServices(NimBLEUUID(Improv::_UUID::ADVERTISEMENT_SERVICE));
     adv_data->setServiceData(data_service_uuid,data_service_data);
 
-    scan_response_data->setName(device_name);
+    scan_response_data->setName(data->device_name);
     scan_response_data->addTxPower();
 }
 
@@ -63,22 +71,22 @@ void Improv::set_state(Improv::State state) {
 
     BLEAdvertisementData adv_service_data;
     BLEAdvertisementData scan_response_data;
-    improvState = state;
-    if(current_state_char->getValue().data()[0] == 0x00 || current_state_char->getValue().data()[0] != static_cast<uint8_t>(improvState)){
-        uint8_t data[1]{static_cast<uint8_t>(improvState)};
-        current_state_char->setValue(data,1);
-        if (state != Improv::State::STATE_STOPPED) current_state_char->notify();
+    data->improvState = state;
+    if(data->current_state_char->getValue().data()[0] == 0x00 || data->current_state_char->getValue().data()[0] != static_cast<uint8_t>(data->improvState)){
+        uint8_t char_data[1]{static_cast<uint8_t>(data->improvState)};
+        data->current_state_char->setValue(char_data,1);
+        if (state != Improv::State::STATE_STOPPED) data->current_state_char->notify();
         
     }
-    service_data.clear();
-    service_data.insert(service_data.end(),static_cast<uint8_t>(improvState));
-    service_data.insert(service_data.end(),uint8_t(identifiable));
-    service_data.insert(service_data.end(),0x00);
-    service_data.insert(service_data.end(),0x00);
-    service_data.insert(service_data.end(),0x00);
-    service_data.insert(service_data.end(),0x00);
+    data->service_data.clear();
+    data->service_data.insert(data->service_data.end(),static_cast<uint8_t>(data->improvState));
+    data->service_data.insert(data->service_data.end(),uint8_t(data->identifiable));
+    data->service_data.insert(data->service_data.end(),0x00);
+    data->service_data.insert(data->service_data.end(),0x00);
+    data->service_data.insert(data->service_data.end(),0x00);
+    data->service_data.insert(data->service_data.end(),0x00);
 
-    configure_adv_data(&adv_service_data,&scan_response_data, NimBLEUUID(Improv::_UUID::DATA_SERVICE_16B),service_data);
+    configure_adv_data(&adv_service_data,&scan_response_data, NimBLEUUID(Improv::_UUID::DATA_SERVICE_16B),data->service_data);
 
     BLEDevice::getAdvertising()->setAdvertisementData(adv_service_data);
     BLEDevice::getAdvertising()->setScanResponseData(scan_response_data);
@@ -95,35 +103,35 @@ void Improv::set_state(Improv::State state) {
 }
 
 void Improv::set_error(Improv::Error error) {
-    improvError = error;
-    if (err_state_char->getValue().data()[0] != static_cast<uint8_t>(improvError)) {
-        uint8_t data[1]{static_cast<uint8_t>(improvError)};
-        err_state_char->setValue(data, 1);
-        if (improvState != Improv::State::STATE_STOPPED)
-        err_state_char->notify();
+    data->improvError = error;
+    if (data->err_state_char->getValue().data()[0] != static_cast<uint8_t>(data->improvError)) {
+        uint8_t char_data[1]{static_cast<uint8_t>(data->improvError)};
+        data->err_state_char->setValue(char_data, 1);
+        if (data->improvState != Improv::State::STATE_STOPPED)
+        data->err_state_char->notify();
     }
 }
 
 void Improv::set_characteristics(BLEService* service){
     uint8_t initial_state = static_cast<uint8_t>(Improv::State::STATE_STOPPED);
     uint8_t initial_error = static_cast<uint8_t>(Improv::Error::ERROR_NONE);
-    capabilites_char = service->createCharacteristic(_UUID::CAPABILITIES, NIMBLE_PROPERTY::READ);
-    capabilites_char->setCallbacks( capabilities_cb ); //try instantiating one object and use it as callback for every characteristic
-    capabilites_char->setValue((uint8_t*)&identifiable,1);
+    data->capabilites_char = service->createCharacteristic(_UUID::CAPABILITIES, NIMBLE_PROPERTY::READ);
+    data->capabilites_char->setCallbacks( data->capabilities_cb ); //try instantiating one object and use it as callback for every characteristic
+    data->capabilites_char->setValue((uint8_t*)&data->identifiable,1);
     
-    current_state_char = service->createCharacteristic(_UUID::CURRENT_STATE, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    current_state_char->setCallbacks( current_state_cb ); //try instantiating one object and use it as callback for every characteristic
-    current_state_char->setValue(&initial_state,1);
+    data->current_state_char = service->createCharacteristic(_UUID::CURRENT_STATE, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    data->current_state_char->setCallbacks( data->current_state_cb ); //try instantiating one object and use it as callback for every characteristic
+    data->current_state_char->setValue(&initial_state,1);
     
-    err_state_char = service->createCharacteristic(_UUID::ERR_STATE, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    err_state_char->setCallbacks( err_state_cb ); //try instantiating one object and use it as callback for every characteristic
-    err_state_char->setValue(&initial_error,1);
+    data->err_state_char = service->createCharacteristic(_UUID::ERR_STATE, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    data->err_state_char->setCallbacks( data->err_state_cb ); //try instantiating one object and use it as callback for every characteristic
+    data->err_state_char->setValue(&initial_error,1);
 
-    rpc_command_char = service->createCharacteristic(_UUID::RPC_COMMAND, NIMBLE_PROPERTY::WRITE);
-    rpc_command_char->setCallbacks( rpc_command_cb ); //try instantiating one object and use it as callback for every characteristic
+    data->rpc_command_char = service->createCharacteristic(_UUID::RPC_COMMAND, NIMBLE_PROPERTY::WRITE);
+    data->rpc_command_char->setCallbacks( data->rpc_command_cb ); //try instantiating one object and use it as callback for every characteristic
     
-    rpc_result_char = service->createCharacteristic(_UUID::RPC_RESULT, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-    rpc_result_char->setCallbacks( rpc_result_cb ); //try instantiating one object and use it as callback for every characteristic
+    data->rpc_result_char = service->createCharacteristic(_UUID::RPC_RESULT, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    data->rpc_result_char->setCallbacks( data->rpc_result_cb ); //try instantiating one object and use it as callback for every characteristic
 }
 
 
@@ -179,49 +187,49 @@ Improv::ImprovCommand Improv::parse_improv_data(const std::vector<uint8_t> &data
 }
 
 void Improv::process_incoming_data() {
-    uint8_t length = rpc_message[1];
+    uint8_t length = data->rpc_message[1];
 
-    ESP_LOGD(TAG, "Processing bytes - %s", format_hex_pretty(this->rpc_message).c_str());
+    ESP_LOGD(TAG, "Processing bytes - %s", format_hex_pretty(data->rpc_message).c_str());
 
-    if (rpc_message.size() - 3 == length) {
+    if (data->rpc_message.size() - 3 == length) {
         set_error(Improv::Error::ERROR_NONE);
-        Improv::ImprovCommand command = Improv::parse_improv_data(rpc_message);
+        Improv::ImprovCommand command = Improv::parse_improv_data(data->rpc_message);
         switch (command.command) {
         case Improv::Command::BAD_CHECKSUM:
             ESP_LOGW(TAG, "Error decoding Improv payload");
             set_error(Improv::Error::ERROR_INVALID_RPC);
-            rpc_message.clear();
+            data->rpc_message.clear();
             break;
         case Improv::Command::WIFI_SETTINGS: {
-            if (improvState != Improv::State::STATE_AUTHORIZED) {
+            if (data->improvState != Improv::State::STATE_AUTHORIZED) {
                 ESP_LOGW(TAG, "Settings received, but not authorized");
                 set_error(Improv::Error::ERROR_NOT_AUTHORIZED);
-                rpc_message.clear();
+                data->rpc_message.clear();
                 return;
             }
-            connect_wifi(wifi_manager, command.ssid, command.password);
+            connect_wifi(data->wifi_manager, command.ssid, command.password);
             set_state(Improv::State::STATE_PROVISIONING);
             ESP_LOGD(TAG, "Received Improv wifi settings ssid=%s, password=" LOG_SECRET("%s"), command.ssid.c_str(),
                     command.password.c_str());
-            rpc_message.clear();
+            data->rpc_message.clear();
             break;
         }
         case Improv::Command::IDENTIFY:
-            rpc_message.clear();
-            identify_device = true;
+            data->rpc_message.clear();
+            data->identify_device = true;
             break;
         default:
             ESP_LOGW(TAG, "Unknown Improv payload");
             set_error(Improv::Error::ERROR_UNKNOWN_RPC);
-            rpc_message.clear();
+            data->rpc_message.clear();
         }
-    } else if (rpc_message.size() - 2 > length) {
-        Serial.printf("expected data size: {%u}, rpc_message size {%u}", length, rpc_message.size());
+    } else if (data->rpc_message.size() - 2 > length) {
+        Serial.printf("expected data size: {%u}, rpc_message size {%u}", length, data->rpc_message.size());
         ESP_LOGV(TAG, "Too much data came in, or malformed resetting buffer...");
         Serial.println("Too much data came in, or malformed resetting buffer...");
-        rpc_message.clear();
+        data->rpc_message.clear();
     } else {
-        Serial.printf("expected data size: {%u}, rpc_message size {%u}", length, rpc_message.size());
+        Serial.printf("expected data size: {%u}, rpc_message size {%u}", length, data->rpc_message.size());
         Serial.println("Waiting for split data packets...");
         ESP_LOGV(TAG, "Waiting for split data packets...");
     }
@@ -251,42 +259,47 @@ std::vector<uint8_t> Improv::build_rpc_response(Improv::Command command, const s
 }
 
 void Improv::send_response(std::vector<uint8_t> &response) {
-    rpc_result_char->setValue(response.data(),response.size());
-    if (improvState != Improv::State::STATE_STOPPED) rpc_result_char->notify();
+    data->rpc_result_char->setValue(response.data(),response.size());
+    if (data->improvState != Improv::State::STATE_STOPPED) data->rpc_result_char->notify();
     Serial.println("notifying RPC response");
 }
 
 void Improv::stop(bool deinitBLE){
-    improvState = State::STATE_STOPPED;
     Serial.println("Stopping Improv service");
-    stop_improv = true;
-    improv_service_running = false;
-    identifiable = true;
-    identify_device = false;
-    authorizer = nullptr;
 
-    improvError = Error::ERROR_NONE;
-    auth = Authorization::DEVICE_UNAUTHORIZED;
-    rpc_message.clear();
-    vTaskDelay(100);
+    //free improv service characteristics memory and service itself
+    for(auto& _char : data->ble_improv_service->getCharacteristics()){
+        data->ble_improv_service->removeCharacteristic(_char,true);
 
-    _bt_server->removeService(ble_improv_service, true);
+    }
+
+    data->_bt_server->removeService(data->ble_improv_service, true);
     Serial.println("improv service removed");
     BLEDevice::stopAdvertising();
-    
     Serial.println("stopped advertising");
+    
+    vTaskDelete(data->loop_handle);
+    data->loop_handle = nullptr;
+    Serial.println("loop stopped");
+
     if (deinitBLE){
-        BLEDevice::deinit(false);
+        BLEDevice::deinit(true);
         Serial.println("ble deinit");
     }
-    vTaskDelete(loop_handle);
-    loop_handle = nullptr;
-    Serial.println("loop handle reset");
+
+    delete data->capabilities_cb;
+    delete data->current_state_cb;
+    delete data->err_state_cb;
+    delete data->rpc_command_cb;
+    delete data->rpc_result_cb;
+
+    delete data;
+    data == nullptr;
 }
 
 //analyzes the current state and acts accordingly
 void Improv::loop(){
-    if (!rpc_message.empty()) process_incoming_data();
+    if (!data->rpc_message.empty()) process_incoming_data();
     uint32_t now = millis();
     static uint32_t start_authorized = 0;
 
@@ -297,23 +310,23 @@ void Improv::loop(){
 
     static bool advertising = false;
     
-    if(identify_device){
+    if(data->identify_device){
         if(now - last_identify_signal_time > 500){
             last_identify_signal_time = now;
             Serial.println("Wants to provision this device Wifi credentials");
         }
     }
 
-    switch(improvState){
+    switch(data->improvState){
         case State::STATE_STOPPED:
-            if(improv_service_running){
+            if(data->improv_service_running){
                 // if(!advertising) advertising =  BLEDevice::startAdvertising();
                 BLEDevice::startAdvertising();
                 set_state(Improv::State::STATE_AWAITING_AUTHORIZATION);
                 set_error(Improv::Error::ERROR_NONE);
             }else{
-                ble_improv_service->start();
-                improv_service_running = true;
+                data->ble_improv_service->start();
+                data->improv_service_running = true;
             }
             break;
         case Improv::State::STATE_AWAITING_AUTHORIZATION: {
@@ -349,7 +362,7 @@ void Improv::loop(){
             if(stop_task_handle == nullptr)
                 xTaskCreate(
                             [](void*){
-                                stop(false);
+                                stop(true);
                                 vTaskDelete(NULL);
                             },
                             "stop Improv",
@@ -367,12 +380,14 @@ void Improv::loop(){
 }
 
 
-void Improv::start(const char* bt_name)
+void Improv::start()
 {
-    if(strlen(bt_name)) device_name = bt_name;
+    if(data == nullptr){
+        throw StartExcept(0x08); // improv data not initialized
+    }
     //initiates BLE as server
     if(!BLEDevice::getInitialized()){
-        BLEDevice::init(device_name);
+        BLEDevice::init(data->device_name);
     }
 
     uint32_t start_ble_init = millis();
@@ -384,36 +399,36 @@ void Improv::start(const char* bt_name)
     }
     Serial.printf("BLEDevice initialized: [%u]\n", BLEDevice::getInitialized());
 
-    if((_bt_server == nullptr)) _bt_server = BLEDevice::createServer();
-    if((_bt_server == nullptr)){
+    data->_bt_server = BLEDevice::createServer();
+    if((data->_bt_server == nullptr)){
         throw StartExcept(0x02);
     }
-    Serial.printf("server addr: %08x\n",_bt_server);
-    _bt_server->setCallbacks(new Improv::CALLBACKS::Server,true);
+    Serial.printf("server addr: %08x\n",data->_bt_server);
+    data->_bt_server->setCallbacks(new Improv::CALLBACKS::Server,true);
 
-    if(ble_improv_service == nullptr) ble_improv_service = _bt_server->createService(_UUID::ADVERTISEMENT_SERVICE);
-    if(ble_improv_service == nullptr){
+    if(data->ble_improv_service == nullptr) data->ble_improv_service = data->_bt_server->createService(_UUID::ADVERTISEMENT_SERVICE);
+    if(data->ble_improv_service == nullptr){
         throw StartExcept(0x01);
     }
 
-    Improv::set_characteristics(ble_improv_service);
+    Improv::set_characteristics(data->ble_improv_service);
 
-    std::vector<NimBLECharacteristic*> chars = ble_improv_service->getCharacteristics();
+    std::vector<NimBLECharacteristic*> chars = data->ble_improv_service->getCharacteristics();
     if(chars.size() == 0){
         Serial.println("empty service");
     }
     
-    chars = ble_improv_service->getCharacteristics();
+    chars = data->ble_improv_service->getCharacteristics();
     for(auto& char_ : chars){
         Serial.println(char_->toString().c_str());
     }
     BLEDevice::getAdvertising()->setScanResponse(true);
 
-    stop_improv = false;
+    data->stop_improv = false;
     Serial.println("improvStarted");
     xTaskCreate(
                 [](void*){
-                    while(!stop_improv){
+                    while(!data->stop_improv){
                         Improv::loop();
                         vTaskDelay(10);
                     }
@@ -423,21 +438,21 @@ void Improv::start(const char* bt_name)
                 NULL,
                 1,
                 // &Improv::loop_handle
-                &loop_handle
+                &data->loop_handle
     );
 }
 
-void Improv::update_rpc_message(NimBLEAttValue &data){
-    Serial.printf("from RPC_COMMAND char: [%s] was written",data.c_str()); 
+void Improv::update_rpc_message(NimBLEAttValue &NIMdata){
+    Serial.printf("from RPC_COMMAND char: [%s] was written",NIMdata.c_str()); 
     //get the value and add it to the rpc_message
-    rpc_message.insert(rpc_message.end(),data.begin(),data.end());
+    data->rpc_message.insert(data->rpc_message.end(),NIMdata.begin(),NIMdata.end());
     //for debugging print the rpc message
-    for(auto& a : data){
+    for(auto& a : NIMdata){
         Serial.printf("[%02x]", a);
     }
     Serial.println("");
 }
 
 void Improv::stop_device_identification(){
-    identify_device = false;
+    data->identify_device = false;
 }
