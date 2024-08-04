@@ -8,8 +8,11 @@
 #include <iostream>
 #include <vector>
 using std::function;
-
-
+#define STOP_FLAG_MASK               0x01
+#define RUNNING_FLAG_MASK            0x02
+#define IDENTIFIABLE_FLAG_MASK       0x04
+#define IDENTIFY_DEVICE_FLAG_MASK    0x08
+typedef byte flags;
 
 namespace Improv{
 
