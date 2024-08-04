@@ -1,5 +1,17 @@
 #include "improv.h"
 
+/* MEMORY MANAGEMENT IDEA
+ * 
+ * have 1 ptr to a structure holding all the data used
+ * using the init() function to initialize the values
+ * dynamically allocating the struct on heap
+ * when the service is stopped, all the strcut gets
+ * dealocated and the only memory loss will be 8 bytes
+ * for the global struct ptr
+ *
+ * 
+*/
+
 //global static variables 
 static Improv::improvData* data = nullptr;
 
@@ -332,7 +344,7 @@ void Improv::loop(){
                 data->improv_service_running = true;
             }
             break;
-        case Improv::State::STATE_AWAITING_AUTHORIZATION: {
+        case Improv::State::STATE_AWAITING_AUTHORIZATION: { 
             Authorization pass = authorize();
             if(pass == Authorization::DEVICE_AUTHORIZED) set_state(Improv::State::STATE_AUTHORIZED);
             break;
