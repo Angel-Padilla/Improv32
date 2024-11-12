@@ -159,6 +159,7 @@ namespace Improv{
         Improv::Error improvError;
         Improv::Authorization auth;
         function<Improv::Authorization(void)> authorizer;
+        function<void(std::string,std::string)> onWiFiConnect;
         std::vector<uint8_t> rpc_message;
         std::string service_data;
         TaskHandle_t loop_handle;
@@ -184,6 +185,7 @@ namespace Improv{
                                             bool add_checksum = true);
 
     void set_authorizer(function<Authorization(void)> new_authorizer);
+    void set_onWiFiConnect(function<void(std::string, std::string)> new_onWiFiConnect);
     Authorization authorize();
     void revoke_auth();
 

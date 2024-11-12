@@ -13,6 +13,8 @@
 */
 
 //global static variables 
+std::string provisioned_pass = "";
+std::string provisioned_ssid = "";
 static Improv::improvData* data = nullptr;
 
 void Improv::init(std::string name = "Improv_service"){
@@ -31,6 +33,7 @@ void Improv::init(std::string name = "Improv_service"){
         .improvError = Improv::Error::ERROR_NONE,
         .auth = Improv::Authorization::DEVICE_UNAUTHORIZED,
         .authorizer = nullptr,
+        .onWiFiConnect = [](std::string ssid, std::string pass){},
         .rpc_message = {},
         .service_data = "",
         .loop_handle = nullptr,
@@ -51,6 +54,8 @@ void Improv::init(std::string name = "Improv_service"){
 
 void Improv::connect_wifi(HardwareSerial* serial, std::string ssid, std::string passwd){
     serial->printf("credentials received: SSID: %s \n PASSWD: %s", ssid.c_str(), passwd.c_str());
+    provisioned_pass = passwd;
+    provisioned_ssid = ssid;
     WiFi.mode(WIFI_STA);
     WiFi.begin(String(ssid.c_str()), String(passwd.c_str()));
 }
@@ -62,6 +67,10 @@ bool Improv::wificonnected(){
 
 void Improv::set_authorizer(function<Authorization(void)> new_authorizer){
     data->authorizer = new_authorizer;
+}
+
+void Improv::set_onWiFiConnect(function<void(std::string,std::string)> new_onWiFiConnect){
+    data->onWiFiConnect = new_onWiFiConnect;
 }
 
 Improv::Authorization Improv::authorize(){
@@ -365,8 +374,9 @@ void Improv::loop(){
                 Serial.println("Provisioning successfull");
                 set_state(Improv::State::STATE_PROVISIONED);
                 std::vector<std::string> urls = {"https://google.com"};
-                std::vector<uint8_t> data = Improv::build_rpc_response(Improv::Command::WIFI_SETTINGS, urls);
-                send_response(data);
+                std::vector<uint8_t> response_data = Improv::build_rpc_response(Improv::Command::WIFI_SETTINGS, urls);
+                send_response(response_data);
+                data->onWiFiConnect(provisioned_ssid, provisioned_pass);
             }
             Serial.printf("connection timing: %u \n",now - start_wifi_connection);
             if(now - (start_wifi_connection - 1) > 30000 && !wificonnected()){
