@@ -31,6 +31,48 @@ namespace Improv{
 
     namespace CALLBACKS{
 
+
+        class CUSTOM : public BLECharacteristicCallbacks{
+        public:
+            CUSTOM() = delete;
+
+            CUSTOM(std::string name):name(name){}
+        private:
+            void onRead(BLECharacteristic* pCharacteristic){
+                Serial.printf("from CUSTOM_[%s] char: [%s] was read",name.c_str(), pCharacteristic->getValue().c_str()); 
+                if (_onReadCB){
+                    _onReadCB(pCharacteristic);
+                }
+            }
+            void onNotify(BLECharacteristic* pCharacteristic){
+                Serial.printf("from CUSTOM_[%s] char: [%s] was read",name.c_str(), pCharacteristic->getValue().c_str()); 
+                if (_onNotifyCB){
+                    _onNotifyCB(pCharacteristic);
+                }
+            }
+            void onWrite(BLECharacteristic* pCharacteristic){
+                if (_onWriteCB){
+                    _onWriteCB(pCharacteristic);
+                }
+
+            }
+        public:
+            void set_onReadCB(function<void(void* params)> new_cb){
+                _onReadCB = new_cb;
+            }
+            void set_onWriteCB(function<void(void* params)> new_cb){
+                _onWriteCB = new_cb;
+            }
+            void set_onNotifyCB(function<void(void* params)> new_cb){
+                _onNotifyCB = new_cb;
+            }
+        private:
+            function<void(void* params)> _onReadCB = nullptr;
+            function<void(void* params)> _onNotifyCB = nullptr;
+            function<void(void* params)> _onWriteCB = nullptr;
+            std::string name = "";
+        };
+
         class CAPABILITIES : public BLECharacteristicCallbacks{
             void onRead(BLECharacteristic* pCharacteristic){
                 Serial.printf("from CAPABILITIES char: [%s] was read",pCharacteristic->getValue().c_str()); 
@@ -172,6 +214,7 @@ namespace Improv{
         BLECharacteristicCallbacks* err_state_cb;
         BLECharacteristicCallbacks* rpc_command_cb;
         BLECharacteristicCallbacks* rpc_result_cb;
+        std::map<std::string,Improv::CALLBACKS::CUSTOM*> custom_char_cbs;
         std::string device_name;
         HardwareSerial* wifi_manager;
     };
@@ -201,6 +244,16 @@ namespace Improv{
     void set_error(Error error);
     void stop(bool deinitBLE);
     void loop();
+
+    void add_custom_characteristic(
+                                        std::string TAG,
+                                        std::string _UUID,
+                                        uint32_t properties,
+                                        std::vector<uint8_t> initial_value,
+                                        function<void(void*)>readCB,
+                                        function<void(void*)>notifyCB,
+                                        function<void(void*)>writeCB
+                                        );
 
     void connect_wifi(HardwareSerial* serial, std::string ssid, std::string passwd);
     bool wificonnected();

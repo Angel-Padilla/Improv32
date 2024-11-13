@@ -16,6 +16,7 @@
 std::string provisioned_pass = "";
 std::string provisioned_ssid = "";
 static Improv::improvData* data = nullptr;
+std::vector<std::tuple<std::string, Improv::CALLBACKS::CUSTOM*, uint8_t ,std::vector<uint8_t>>> custom_chars_data;
 
 void Improv::init(std::string name = "Improv_service"){
 
@@ -46,6 +47,7 @@ void Improv::init(std::string name = "Improv_service"){
         .err_state_cb = new Improv::CALLBACKS::ERR_STATE,
         .rpc_command_cb = new Improv::CALLBACKS::RPC_COMMAND,
         .rpc_result_cb = new Improv::CALLBACKS::RPC_RESULT,
+        .custom_char_cbs = {},
         .device_name = name,
         .wifi_manager = &Serial,
     });
@@ -156,6 +158,20 @@ void Improv::set_characteristics(BLEService* service){
     
     data->rpc_result_char = service->createCharacteristic(_UUID::RPC_RESULT, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     data->rpc_result_char->setCallbacks( data->rpc_result_cb ); //try instantiating one object and use it as callback for every characteristic
+
+    //add all the custom characteristics
+
+    for(auto data : custom_chars_data ){
+        auto uuid = std::get<0>(data);
+        auto custom_cb = std::get<1>(data);
+        auto properties = std::get<2>(data);
+        auto init_data = std::get<3>(data);
+
+        auto new_char = service->createCharacteristic(uuid,properties);
+        new_char->setCallbacks(custom_cb);
+        new_char->setValue(init_data);
+    }
+
 }
 
 
@@ -427,7 +443,9 @@ void Improv::start()
     }
     Serial.printf("BLEDevice initialized: [%u]\n", BLEDevice::getInitialized());
 
-    data->_bt_server = BLEDevice::createServer();
+    if(data->_bt_server == nullptr){
+        data->_bt_server = BLEDevice::createServer();
+    }
     if((data->_bt_server == nullptr)){
         throw StartExcept(0x02);
     }
@@ -454,20 +472,22 @@ void Improv::start()
 
     data->stop_improv = false;
     Serial.println("improvStarted");
-    xTaskCreate(
-                [](void*){
-                    while(!data->stop_improv){
-                        Improv::loop();
-                        vTaskDelay(10);
-                    }
-                },
-                "improv loop fcn",
-                3000,
-                NULL,
-                1,
-                // &Improv::loop_handle
-                &data->loop_handle
-    );
+    if(data->loop_handle == nullptr){
+        xTaskCreate(
+                    [](void*){
+                        while(!data->stop_improv){
+                            Improv::loop();
+                            vTaskDelay(10);
+                        }
+                    },
+                    "improv loop fcn",
+                    3000,
+                    NULL,
+                    1,
+                    // &Improv::loop_handle
+                    &data->loop_handle
+        );
+    }
 }
 
 void Improv::update_rpc_message(NimBLEAttValue &NIMdata){
@@ -483,4 +503,26 @@ void Improv::update_rpc_message(NimBLEAttValue &NIMdata){
 
 void Improv::stop_device_identification(){
     data->identify_device = false;
+}
+
+void Improv::add_custom_characteristic(
+                                        std::string TAG,
+                                        std::string _UUID,
+                                        uint32_t properties,
+                                        std::vector<uint8_t> initial_value,
+                                        function<void(void*)>readCB,
+                                        function<void(void*)>notifyCB,
+                                        function<void(void*)>writeCB
+                                        )
+{
+    Improv::CALLBACKS::CUSTOM *new_callbacks = new Improv::CALLBACKS::CUSTOM(TAG);
+
+    auto new_custom_char = std::make_tuple(
+        _UUID,
+        new_callbacks,
+        properties,
+        initial_value
+    );
+
+    custom_chars_data.push_back(new_custom_char);
 }
